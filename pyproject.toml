@@ -1,0 +1,25 @@
+[project]
+name = "pymess"
+version = "0.1.0"
+description = "Cross-platform secure messenger with E2EE and zero-knowledge server"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.30.0",
+  "sqlalchemy>=2.0.30",
+  "aiosqlite>=0.20.0",
+  "pydantic>=2.8.0",
+  "pyjwt>=2.9.0",
+  "cryptography>=43.0.0",
+  "passlib[bcrypt]>=1.7.4",
+  "redis>=5.0.7",
+  "httpx>=0.27.0",
+  "kivy>=2.3.0",
+  "pyqt6>=6.7.0"
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8.3.0", "pytest-asyncio>=0.23.8"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
