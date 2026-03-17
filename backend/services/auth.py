@@ -5,9 +5,11 @@ from datetime import datetime, timezone, timedelta
 
 import jwt
 from passlib.context import CryptContext
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import settings
-from backend.storage import Storage, UserRecord
+from backend.models import RefreshToken, User
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -26,19 +28,25 @@ def create_access_token(user_id: int) -> str:
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
-async def create_refresh_token(user_id: int, store: Storage) -> str:
+async def create_refresh_token(user_id: int, db: AsyncSession) -> str:
     token = secrets.token_urlsafe(48)
-    expires_at = datetime.now(timezone.utc) + timedelta(days=settings.refresh_token_days)
-    await store.create_refresh_token(user_id, token, expires_at)
+    record = RefreshToken(
+        user_id=user_id,
+        token=token,
+        expires_at=datetime.now(timezone.utc) + timedelta(days=settings.refresh_token_days),
+    )
+    db.add(record)
+    await db.commit()
     return token
 
 
-async def rotate_refresh_token(token: str, store: Storage) -> tuple[int, str] | None:
-    refresh = await store.get_refresh_token(token)
-    if not refresh or refresh.revoked or refresh.expires_at < datetime.now(timezone.utc):
+async def rotate_refresh_token(token: str, db: AsyncSession) -> tuple[int, str] | None:
+    result = await db.execute(select(RefreshToken).where(RefreshToken.token == token, RefreshToken.revoked.is_(False)))
+    refresh = result.scalar_one_or_none()
+    if not refresh or refresh.expires_at < datetime.now(timezone.utc):
         return None
-    await store.revoke_refresh_token(token)
-    new_token = await create_refresh_token(refresh.user_id, store)
+    refresh.revoked = True
+    new_token = await create_refresh_token(refresh.user_id, db)
     return refresh.user_id, new_token
 
 
@@ -47,5 +55,6 @@ def decode_access_token(token: str) -> int:
     return int(payload["sub"])
 
 
-async def get_user_by_username(username: str, store: Storage) -> UserRecord | None:
-    return await store.get_user_by_username(username)
+async def get_user_by_username(username: str, db: AsyncSession) -> User | None:
+    result = await db.execute(select(User).where(User.username == username))
+    return result.scalar_one_or_none()

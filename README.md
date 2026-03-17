@@ -1,87 +1,97 @@
-# PyMess (Supabase Branch)
+# PyMess: Cross-Platform Secure Messaging (Android + Windows)
 
-Эта ветка (`supabase-version`) переводит backend на Supabase (Postgres через PostgREST) для хранения **только зашифрованных данных и метаданных**.
-
-## Архитектура (Supabase)
+## 1) Architecture diagram (text)
 
 ```text
-Android (Kivy) / Windows (PyQt)
-   |  E2EE envelope (AES-256-GCM + ratchet metadata)
-   v
-FastAPI Gateway
-   - JWT/refresh
-   - replay protection
-   - rate limiting
-   - routing only
-   v
-Supabase Postgres
-   - users (public keys + device binding)
-   - refresh_tokens
-   - encrypted_messages (ciphertext blobs only)
++-------------------------+                  +-------------------------------------+
+| Android Client (Kivy)   |                  | Windows Client (PyQt6)              |
+| - local key generation  |                  | - local key generation              |
+| - Double Ratchet state  |                  | - Double Ratchet state              |
+| - AES-256-GCM encrypt   |                  | - AES-256-GCM encrypt               |
++------------+------------+                  +----------------+--------------------+
+             | TLS 1.3 + cert pinning                         |
+             +-----------------------------+------------------+
+                                           |
+                                  +--------v---------+
+                                  | FastAPI Gateway  |
+                                  | JWT auth         |
+                                  | Rate limiting    |
+                                  | Replay checks    |
+                                  +--------+---------+
+                                           |
+                   +-----------------------+------------------------+
+                   |                                                |
+            +------v------+                                  +------v------+
+            | PostgreSQL  |                                  | Redis       |
+            | user/meta   |                                  | sessions,   |
+            | encrypted   |                                  | queue/pres. |
+            | envelopes   |                                  +-------------+
+            +-------------+
+
+Zero-knowledge server: only encrypted envelopes and metadata are stored.
 ```
 
-## Переменные окружения
+## 2) Full backend code (FastAPI)
 
-```bash
-export PYMESS_USE_SUPABASE=true
-export SUPABASE_URL="https://<project-ref>.supabase.co"
-export SUPABASE_SERVICE_ROLE_KEY="<service-role-key>"
-export PYMESS_JWT_SECRET="<strong-random-secret>"
-```
+Implemented under `backend/`:
+- `backend/main.py`: app startup and health endpoint.
+- `backend/api/routes.py`: registration, login, refresh, prekey lookup, send/pending messages, WebSocket.
+- `backend/services/*`: auth, message routing, replay protection, rate limiting.
+- `backend/models.py`: users, refresh tokens, encrypted message storage.
 
-Если `PYMESS_USE_SUPABASE=false`, backend запускается с in-memory storage (удобно для локальных тестов).
+## 3) Client code (Android + Windows)
 
-## SQL для Supabase
+- `client_android/main.py`: Kivy app with secure session creation and client-side encryption before send.
+- `client_windows/main.py`: PyQt6 desktop client with same encrypted envelope flow.
 
-```sql
-create table if not exists users (
-  id bigint generated always as identity primary key,
-  username text unique not null,
-  password_hash text not null,
-  device_id text not null,
-  identity_key text not null,
-  signed_prekey text not null,
-  created_at timestamptz not null default now()
-);
+> Production note: replace placeholder secure stores with Android Keystore (`pyjnius`) and Windows DPAPI (`win32crypt`).
 
-create table if not exists refresh_tokens (
-  id bigint generated always as identity primary key,
-  user_id bigint not null references users(id) on delete cascade,
-  token text unique not null,
-  expires_at timestamptz not null,
-  revoked boolean not null default false,
-  created_at timestamptz not null default now()
-);
+## 4) Crypto module implementation
 
-create table if not exists encrypted_messages (
-  id bigint generated always as identity primary key,
-  msg_id text unique not null,
-  sender_id bigint not null references users(id) on delete cascade,
-  recipient_id bigint not null references users(id) on delete cascade,
-  nonce text not null,
-  ciphertext text not null,
-  aad text,
-  ratchet_header text not null,
-  timestamp timestamptz not null,
-  created_at timestamptz not null default now()
-);
+Shared crypto is implemented in `shared/`:
+- `shared/crypto_utils/keys.py`: X25519 key generation + DH + HKDF.
+- `shared/crypto_utils/aead.py`: AES-256-GCM wrappers.
+- `shared/crypto_utils/ratchet.py`: simplified Double Ratchet chain/root handling.
+- `shared/protocol/client_session.py`: per-message key derivation and encrypted envelope formatting.
 
-create index if not exists idx_users_username on users(username);
-create index if not exists idx_messages_recipient on encrypted_messages(recipient_id);
-```
+Each message:
+1. derives a fresh message key from ratchet chain key,
+2. encrypts with AES-256-GCM,
+3. attaches ratchet header and timestamp/nonce.
 
-## Запуск
+## 5) Setup instructions
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -e .[test]
 uvicorn backend.main:app --host 0.0.0.0 --port 8000
+pytest backend/tests -q
 ```
 
-## Безопасность
+Mobile/desktop apps import shared crypto modules and call backend API over TLS.
 
-- Сервер не расшифровывает сообщения; хранит только encrypted envelope.
-- Приватные ключи остаются на клиентах.
-- Replay-защита: nonce + timestamp.
-- JWT access + refresh rotation.
+## 6) Security explanation
+
+### Threat model
+- **MITM:** mitigated via TLS 1.3 and certificate pinning hooks (`backend/crypto/tls_pinning.py`).
+- **Replay attacks:** mitigated with nonce + timestamp checks (`ReplayProtector`).
+- **Key leakage (server-side):** server never receives private keys; private keys generated and retained on-device.
+- **Credential theft impact:** short-lived JWT access tokens + refresh rotation.
+
+### Why crypto choices are secure
+- **X25519 Diffie-Hellman:** modern, widely reviewed ECDH primitive.
+- **HKDF-SHA256:** secure key separation/derivation from shared secrets.
+- **AES-256-GCM:** AEAD gives confidentiality + integrity/authentication.
+- **Double Ratchet-style chain:** forward secrecy by evolving message keys and never reusing them.
+
+### Limitations
+- Simplified Double Ratchet (no skipped-key storage or full asynchronous header key logic).
+- Group chat key management is not fully implemented yet (current code is 1-to-1 foundation).
+- Secure storage classes in clients are placeholders requiring platform-specific bindings.
+- Redis/PostgreSQL integrations are interface-ready; local SQLite is used by default for quick start.
+
+## Bonus placeholders
+- `shared/protocol/client_session.py` can be extended to hybrid P2P transport abstraction.
+- Post-quantum placeholder can be added via Kyber KEM wrapper alongside X25519 during handshake.
+- TOR/onion routing can be layered through SOCKS5 proxy configuration in HTTP/WebSocket clients.
