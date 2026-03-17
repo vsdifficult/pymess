@@ -1,0 +1,5 @@
+sqlalchemy
+supabase
+kivy
+PyQt6 
+httpx
