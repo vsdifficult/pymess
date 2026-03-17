@@ -43,8 +43,8 @@ def test_replay_protection_rejects_duplicate_nonce() -> None:
         "ratchet_header": {"n": 1},
     }
 
-    first = client.post("/api/messages", json=message, headers={"Authorization": f"Bearer {token}"})
-    second = client.post("/api/messages", json={**message, "msg_id": "abc123abc124"}, headers={"Authorization": f"Bearer {token}"})
+    first = client.post("/api/messages", json=message, headers={"Authorization": f"Bearer {token}", "X-Device-ID": "android-device-1"})
+    second = client.post("/api/messages", json={**message, "msg_id": "abc123abc124"}, headers={"Authorization": f"Bearer {token}", "X-Device-ID": "android-device-1"})
 
     assert first.status_code == 200
     assert second.status_code == 400

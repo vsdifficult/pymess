@@ -42,3 +42,22 @@ class MessageOut(BaseModel):
     aad: str | None
     ratchet_header: dict
     timestamp: datetime
+
+
+class ContactUpdateRequest(BaseModel):
+    contact_username: str = Field(min_length=3, max_length=64)
+
+
+class GroupCreateRequest(BaseModel):
+    group_name: str = Field(min_length=3, max_length=128)
+    encrypted_group_key: str = Field(min_length=16)
+    members: list[str] = Field(default_factory=list)
+
+
+class GroupMessageIn(BaseModel):
+    group_id: str = Field(min_length=8, max_length=64)
+    nonce: str = Field(min_length=16)
+    ciphertext: str = Field(min_length=16)
+    aad: str | None = None
+    msg_id: str = Field(min_length=8, max_length=64)
+    timestamp: datetime

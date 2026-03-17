@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict, deque
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 
 
 class ReplayProtector:
@@ -9,14 +9,17 @@ class ReplayProtector:
         self.ttl = timedelta(seconds=ttl_seconds)
         self.seen: dict[str, datetime] = {}
 
-    def validate(self, nonce: str, timestamp: datetime) -> bool:
+    def validate(self, nonce: str, sender_id: int, timestamp: datetime) -> bool:
         now = datetime.now(timezone.utc)
         ts = timestamp if timestamp.tzinfo else timestamp.replace(tzinfo=timezone.utc)
         if abs(now - ts) > self.ttl:
             return False
-        if nonce in self.seen and now - self.seen[nonce] <= self.ttl:
+
+        replay_key = f"{sender_id}:{nonce}"
+        if replay_key in self.seen and now - self.seen[replay_key] <= self.ttl:
             return False
-        self.seen[nonce] = now
+
+        self.seen[replay_key] = now
         expired = [k for k, v in self.seen.items() if now - v > self.ttl]
         for key in expired:
             del self.seen[key]

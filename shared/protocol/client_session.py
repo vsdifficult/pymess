@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import zlib
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -16,11 +17,19 @@ class SecureSession:
         self.ratchet = RatchetState.initialize(secret)
         self.initiator = initiator
 
+    def _pack_plaintext(self, plaintext: str) -> tuple[bytes, bool]:
+        source = plaintext.encode()
+        compressed = zlib.compress(source, level=6)
+        if len(compressed) + 8 < len(source):
+            return compressed, True
+        return source, False
+
     def encrypt_for_transport(self, sender: str, recipient: str, plaintext: str) -> dict:
         keys = self.ratchet.next_sending_message_key()
         nonce = secure_random(12)
         aad = f"{sender}:{recipient}".encode()
-        ciphertext = encrypt_aes256_gcm(keys.message_key[:32], nonce, plaintext.encode(), aad)
+        packed, is_compressed = self._pack_plaintext(plaintext)
+        ciphertext = encrypt_aes256_gcm(keys.message_key[:32], nonce, packed, aad)
         return {
             "sender_id": sender,
             "recipient_id": recipient,
@@ -29,15 +38,17 @@ class SecureSession:
             "aad": b64e(aad),
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "msg_id": uuid4().hex,
-            "ratchet_header": {"n": self.ratchet.send_count, "init": self.initiator},
+            "ratchet_header": {"n": self.ratchet.send_count, "init": self.initiator, "zip": is_compressed},
         }
 
     def decrypt_from_transport(self, envelope: dict) -> str:
         keys = self.ratchet.next_receiving_message_key()
-        plaintext = decrypt_aes256_gcm(
+        packed = decrypt_aes256_gcm(
             keys.message_key[:32],
             b64d(envelope["nonce"]),
             b64d(envelope["ciphertext"]),
             b64d(envelope["aad"]) if envelope.get("aad") else None,
         )
-        return plaintext.decode()
+        if envelope.get("ratchet_header", {}).get("zip"):
+            packed = zlib.decompress(packed)
+        return packed.decode()

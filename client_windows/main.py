@@ -53,7 +53,7 @@ class ChatWindow(QWidget):
         peer = self.peer_input.toPlainText().strip()
         plaintext = self.message_input.toPlainText().strip()
         token = self.store.get("access_token")
-        headers = {"Authorization": f"Bearer {token}"}
+        headers = {"Authorization": f"Bearer {token}", "X-Device-ID": "demo-device"}
 
         async with httpx.AsyncClient(timeout=10.0) as client:
             prekey = await client.get(f"{API_BASE}/users/{peer}/prekey", headers=headers)

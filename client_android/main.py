@@ -49,7 +49,7 @@ class MessengerWidget(BoxLayout):
     async def send_message(self) -> None:
         async with httpx.AsyncClient(timeout=10.0) as client:
             token = self.store.get("access_token")
-            headers = {"Authorization": f"Bearer {token}"}
+            headers = {"Authorization": f"Bearer {token}", "X-Device-ID": "demo-device"}
             prekey = await client.get(f"{API_BASE}/users/{self.peer.text}/prekey", headers=headers)
             prekey.raise_for_status()
             if not self.session:
