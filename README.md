@@ -98,3 +98,14 @@ docker run --env-file .env -p 8000:8000 pymess
 - Ratchet implementation is simplified; production should use a fully audited protocol implementation.
 - Android Keystore and Windows DPAPI are placeholders in UI clients.
 - Supabase Auth integration is expected to be configured in project dashboard for email/password and optional OAuth.
+
+## 9) Auto-accept PR changes (so you do not approve each change manually)
+
+A workflow is included at `.github/workflows/auto-accept-pr.yml`.
+
+How to enable:
+1. In GitHub repo settings → **Secrets and variables** → **Actions** → **Variables**.
+2. Create variable `AUTO_ACCEPT_ALL_PR` with value `true`.
+3. Keep branch protection with required CI checks; the workflow will auto-approve and enable auto-merge (squash) after checks pass.
+
+How to disable: set `AUTO_ACCEPT_ALL_PR` to `false` (or remove it).
